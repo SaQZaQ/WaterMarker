@@ -38,16 +38,18 @@ function loadLS<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
+const DEFAULT_SETTINGS: WatermarkSettings = {
+  mode: 'free', opacity: 30, rotation: 0, scale: 1,
+  x: 50, y: 50, gapX: 500, gapY: 500, outputFormat: 'png',
+};
+
 export default function App() {
   const [watermark, setWatermark]             = useState<WatermarkImage | null>(null);
   const [targetImages, setTargetImages]       = useState<TargetImage[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds]           = useState<Set<string>>(new Set());
   const [settings, setSettings]               = useState<WatermarkSettings>(() =>
-    loadLS<WatermarkSettings>('wm-settings', {
-      mode: 'free', opacity: 30, rotation: 0, scale: 1,
-      x: 50, y: 50, gapX: 500, gapY: 500, outputFormat: 'png',
-    })
+    loadLS<WatermarkSettings>('wm-settings', DEFAULT_SETTINGS)
   );
   const [isProcessing, setIsProcessing]         = useState(false);
   const [isDragging, setIsDragging]             = useState(false);
@@ -180,7 +182,7 @@ export default function App() {
     if (wmSourceRef.current === 'text') {
       const text = wmTextRef.current;
       if (!text.trim()) { ctx.globalAlpha = 1; return; }
-      const fontSize = Math.max(12, (w * s.scale) / 100);
+      const fontSize = Math.max(12, (w * s.scale * 5) / 100);
       ctx.font         = `${fontSize}px ${wmFontRef.current}`;
       ctx.fillStyle    = wmColorRef.current;
       ctx.textAlign    = 'center';
@@ -662,62 +664,132 @@ export default function App() {
 
                 <div className="border-t border-[#3e3e3e]" />
 
-                {/* スライダー群 - 2列グリッド */}
-                <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+                {/* スライダー群 - 縦並び + 数値入力 */}
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs text-muted-foreground">調整</Label>
+                  <button
+                    onClick={() => setSettings(DEFAULT_SETTINGS)}
+                    className="text-xs text-muted-foreground hover:text-[#0ea5e9] transition-colors"
+                  >
+                    リセット
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* 透明度 */}
                   <div>
-                    <div className="flex justify-between mb-2">
+                    <div className="flex justify-between items-center mb-1.5">
                       <Label className="text-xs text-muted-foreground">透明度</Label>
-                      <span className="text-xs text-foreground">{Math.round(settings.opacity)}%</span>
+                      <div className="flex items-center gap-1">
+                        <input type="number" min={0} max={100} step={1}
+                          value={Math.round(settings.opacity)}
+                          onChange={e => setSettings(p => ({ ...p, opacity: Math.max(0, Math.min(100, +e.target.value)) }))}
+                          className="w-14 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                        />
+                        <span className="text-xs text-muted-foreground w-4">%</span>
+                      </div>
                     </div>
                     <Slider value={[settings.opacity]} onValueChange={([v]) => setSettings(p => ({ ...p, opacity: Math.abs(v - 50) <= 2 ? 50 : v }))} min={0} max={100} step={1} />
                   </div>
+
+                  {/* 角度 */}
                   <div>
-                    <div className="flex justify-between mb-2">
+                    <div className="flex justify-between items-center mb-1.5">
                       <Label className="text-xs text-muted-foreground">角度</Label>
-                      <span className="text-xs text-foreground">{settings.rotation}°</span>
+                      <div className="flex items-center gap-1">
+                        <input type="number" min={-180} max={180} step={1}
+                          value={settings.rotation}
+                          onChange={e => setSettings(p => ({ ...p, rotation: Math.max(-180, Math.min(180, +e.target.value)) }))}
+                          className="w-14 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                        />
+                        <span className="text-xs text-muted-foreground w-4">°</span>
+                      </div>
                     </div>
                     <Slider value={[settings.rotation]} onValueChange={([v]) => setSettings(p => ({ ...p, rotation: Math.abs(v) <= 2 ? 0 : v }))} min={-180} max={180} step={1} />
                   </div>
+
+                  {/* サイズ */}
                   <div>
-                    <div className="flex justify-between mb-2">
+                    <div className="flex justify-between items-center mb-1.5">
                       <Label className="text-xs text-muted-foreground">サイズ</Label>
-                      <span className="text-xs text-foreground">{settings.scale}%</span>
+                      <div className="flex items-center gap-1">
+                        <input type="number" min={1} max={100} step={1}
+                          value={settings.scale}
+                          onChange={e => setSettings(p => ({ ...p, scale: Math.max(1, Math.min(100, +e.target.value)) }))}
+                          className="w-14 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                        />
+                        <span className="text-xs text-muted-foreground w-4">%</span>
+                      </div>
                     </div>
                     <Slider value={[settings.scale]} onValueChange={([v]) => setSettings(p => ({ ...p, scale: v }))} min={1} max={100} step={1} />
                   </div>
 
                   {settings.mode === 'free' ? (
                     <>
+                      {/* 横の位置 */}
                       <div>
-                        <div className="flex justify-between mb-2">
+                        <div className="flex justify-between items-center mb-1.5">
                           <Label className="text-xs text-muted-foreground">横の位置</Label>
-                          <span className="text-xs text-foreground">{Math.round(settings.x)}%</span>
+                          <div className="flex items-center gap-1">
+                            <input type="number" min={0} max={100} step={1}
+                              value={Math.round(settings.x)}
+                              onChange={e => setSettings(p => ({ ...p, x: Math.max(0, Math.min(100, +e.target.value)) }))}
+                              className="w-14 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                            />
+                            <span className="text-xs text-muted-foreground w-4">%</span>
+                          </div>
                         </div>
                         <Slider value={[settings.x]} onValueChange={([v]) => setSettings(p => ({ ...p, x: v }))} min={0} max={100} step={0.5} />
                       </div>
+
+                      {/* 縦の位置 */}
                       <div>
-                        <div className="flex justify-between mb-2">
+                        <div className="flex justify-between items-center mb-1.5">
                           <Label className="text-xs text-muted-foreground">縦の位置</Label>
-                          <span className="text-xs text-foreground">{Math.round(settings.y)}%</span>
+                          <div className="flex items-center gap-1">
+                            <input type="number" min={0} max={100} step={1}
+                              value={Math.round(settings.y)}
+                              onChange={e => setSettings(p => ({ ...p, y: Math.max(0, Math.min(100, +e.target.value)) }))}
+                              className="w-14 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                            />
+                            <span className="text-xs text-muted-foreground w-4">%</span>
+                          </div>
                         </div>
                         <Slider value={[settings.y]} onValueChange={([v]) => setSettings(p => ({ ...p, y: v }))} min={0} max={100} step={0.5} />
                       </div>
                     </>
                   ) : (
                     <>
+                      {/* 横の間隔 */}
                       <div>
-                        <div className="flex justify-between mb-2">
+                        <div className="flex justify-between items-center mb-1.5">
                           <Label className="text-xs text-muted-foreground">横の間隔</Label>
-                          <span className="text-xs text-foreground">{settings.gapX}px</span>
+                          <div className="flex items-center gap-1">
+                            <input type="number" min={50} max={1000} step={10}
+                              value={settings.gapX}
+                              onChange={e => setSettings(p => ({ ...p, gapX: Math.max(50, Math.min(1000, +e.target.value)) }))}
+                              className="w-16 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                            />
+                            <span className="text-xs text-muted-foreground w-4">px</span>
+                          </div>
                         </div>
-                        <Slider value={[settings.gapX]} onValueChange={([v]) => setSettings(p => ({ ...p, gapX: v }))} min={50} max={500} step={10} />
+                        <Slider value={[settings.gapX]} onValueChange={([v]) => setSettings(p => ({ ...p, gapX: v }))} min={50} max={1000} step={10} />
                       </div>
+
+                      {/* 縦の間隔 */}
                       <div>
-                        <div className="flex justify-between mb-2">
+                        <div className="flex justify-between items-center mb-1.5">
                           <Label className="text-xs text-muted-foreground">縦の間隔</Label>
-                          <span className="text-xs text-foreground">{settings.gapY}px</span>
+                          <div className="flex items-center gap-1">
+                            <input type="number" min={50} max={1000} step={10}
+                              value={settings.gapY}
+                              onChange={e => setSettings(p => ({ ...p, gapY: Math.max(50, Math.min(1000, +e.target.value)) }))}
+                              className="w-16 bg-[#1e1e1e] border border-[#3e3e3e] rounded px-2 py-0.5 text-xs text-right text-foreground focus:outline-none focus:border-[#0ea5e9]"
+                            />
+                            <span className="text-xs text-muted-foreground w-4">px</span>
+                          </div>
                         </div>
-                        <Slider value={[settings.gapY]} onValueChange={([v]) => setSettings(p => ({ ...p, gapY: v }))} min={50} max={500} step={10} />
+                        <Slider value={[settings.gapY]} onValueChange={([v]) => setSettings(p => ({ ...p, gapY: v }))} min={50} max={1000} step={10} />
                       </div>
                     </>
                   )}
