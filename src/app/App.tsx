@@ -182,11 +182,25 @@ export default function App() {
     if (wmSourceRef.current === 'text') {
       const text = wmTextRef.current;
       if (!text.trim()) { ctx.globalAlpha = 1; return; }
-      const fontSize = Math.max(12, (w * s.scale * 5) / 100);
-      ctx.font         = `${fontSize}px ${wmFontRef.current}`;
+      const baseFontSize = Math.max(8, (w * s.scale) / 100);
+      ctx.font = `${baseFontSize}px ${wmFontRef.current}`;
+
+      const metrics = ctx.measureText(text);
+      const maxTextWidth =
+        s.mode === 'repeat'
+          ? s.gapX * 0.8
+          : w * 0.35;
+
+      const fittedFontSize =
+        metrics.width > 0
+          ? Math.min(baseFontSize, baseFontSize * (maxTextWidth / metrics.width))
+          : baseFontSize;
+
+      ctx.font         = `${fittedFontSize}px ${wmFontRef.current}`;
       ctx.fillStyle    = wmColorRef.current;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
+
       if (s.mode === 'free') {
         ctx.save();
         ctx.translate((w * s.x) / 100, (h * s.y) / 100);
