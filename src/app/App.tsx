@@ -6,14 +6,14 @@ import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import {
   Image, Download, Upload, X, FileImage,
-  SlidersHorizontal, Plus, Type,
+  SlidersHorizontal, Plus, Type, FolderDown,
 } from 'lucide-react';
 import JSZip from 'jszip';
 
 type WatermarkMode = 'free' | 'repeat';
 type OutputFormat  = 'png' | 'jpeg' | 'webp';
 type WmSource      = 'image' | 'text';
-type RightPanel    = 'settings' | 'images' | null;
+type RightPanel    = 'settings' | 'images' | 'export' | null;
 
 interface WatermarkImage { file: File; src: string; width: number; height: number; }
 interface TargetImage    { id: string; file: File; src: string; width: number; height: number; }
@@ -39,7 +39,7 @@ function loadLS<T>(key: string, fallback: T): T {
 }
 
 const DEFAULT_SETTINGS: WatermarkSettings = {
-  mode: 'free', opacity: 30, rotation: 0, scale: 1,
+  mode: 'free', opacity: 30, rotation: 0, scale: 50,
   x: 50, y: 50, gapX: 500, gapY: 500, outputFormat: 'png',
 };
 
@@ -182,27 +182,22 @@ export default function App() {
     if (wmSourceRef.current === 'text') {
       const text = wmTextRef.current;
       if (!text.trim()) { ctx.globalAlpha = 1; return; }
-      const baseFontSize = Math.max(8, (w * s.scale) / 100);
-      ctx.font = `${baseFontSize}px ${wmFontRef.current}`;
+      ctx.font = `100px ${wmFontRef.current}`;
+      const metrics = ctx.measureText(text);
 
-      let finalFontSize = baseFontSize;
+      const maxTextWidth =
+        s.mode === 'repeat'
+          ? s.gapX * 0.8
+          : w;
 
-      if (s.scale >= 100) {
-        const metrics = ctx.measureText(text);
-        const maxTextWidth =
-          s.mode === 'repeat'
-            ? s.gapX * 0.8
-            : w * 0.35;
+      const maxFontSize =
+        metrics.width > 0
+          ? (maxTextWidth / metrics.width) * 100
+          : 100;
 
-        if (metrics.width > 0) {
-          finalFontSize = Math.min(
-            baseFontSize,
-            baseFontSize * (maxTextWidth / metrics.width)
-          );
-        }
-      }
+      const fontSize = Math.max(1, (maxFontSize * s.scale) / 100);
 
-      ctx.font         = `${finalFontSize}px ${wmFontRef.current}`;
+      ctx.font         = `${fontSize}px ${wmFontRef.current}`;
       ctx.fillStyle    = wmColorRef.current;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
@@ -266,19 +261,64 @@ export default function App() {
   // Canvas drag
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (settings.mode !== 'free' || !selectedImage) return;
-    const canvas = wmCanvasRef.current; if (!canvas) return;
+    const canvas = wmCanvasRef.current;
+    if (!canvas) return;
+
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width  / rect.width);
-    const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
     const s = settingsRef.current;
-    const cx = (canvas.width  * s.x) / 100;
+    const cx = (canvas.width * s.x) / 100;
     const cy = (canvas.height * s.y) / 100;
-    let hitW = 200, hitH = 60;
+
+    let hitHalfW = 100;
+    let hitHalfH = 30;
+
     if (wmSourceRef.current === 'image' && wmImgRef.current) {
-      hitW = (wmImgRef.current.naturalWidth  * s.scale) / 100 * 0.65;
-      hitH = (wmImgRef.current.naturalHeight * s.scale) / 100 * 0.65;
+      hitHalfW = ((wmImgRef.current.naturalWidth * s.scale) / 100) / 2;
+      hitHalfH = ((wmImgRef.current.naturalHeight * s.scale) / 100) / 2;
+    } else if (wmSourceRef.current === 'text') {
+      const text = wmTextRef.current.trim();
+      if (!text) return;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.save();
+
+      ctx.font = `100px ${wmFontRef.current}`;
+      const metricsAt100 = ctx.measureText(text);
+
+      const maxTextWidth = canvas.width;
+      const maxFontSize =
+        metricsAt100.width > 0
+          ? (maxTextWidth / metricsAt100.width) * 100
+          : 100;
+
+      const fontSize = Math.max(1, (maxFontSize * s.scale) / 100);
+      ctx.font = `${fontSize}px ${wmFontRef.current}`;
+
+      const metrics = ctx.measureText(text);
+      const textWidth = metrics.width;
+      const textHeight =
+        (metrics.actualBoundingBoxAscent || fontSize * 0.8) +
+        (metrics.actualBoundingBoxDescent || fontSize * 0.2);
+
+      ctx.restore();
+
+      hitHalfW = textWidth / 2;
+      hitHalfH = textHeight / 2;
     }
-    if (Math.abs(x - cx) <= hitW && Math.abs(y - cy) <= hitH) setIsDragging(true);
+
+    if (
+      x >= cx - hitHalfW &&
+      x <= cx + hitHalfW &&
+      y >= cy - hitHalfH &&
+      y <= cy + hitHalfH
+    ) {
+      setIsDragging(true);
+    }
   };
 
   useEffect(() => {
@@ -438,7 +478,7 @@ export default function App() {
   const allChecked   = targetImages.length > 0 && checkedCount === targetImages.length;
 
   // Toggle panel (same button closes, different button switches)
-  const togglePanel = (panel: 'settings' | 'images') =>
+  const togglePanel = (panel: 'settings' | 'images' | 'export') =>
     setRightPanel(prev => prev === panel ? null : panel);
 
   // Icon button
@@ -559,12 +599,20 @@ export default function App() {
                   <Label className="text-xs text-muted-foreground block">ウォーターマーク</Label>
 
                   <Tabs value={wmSource} onValueChange={v => setWmSource(v as WmSource)}>
-                    <TabsList className="w-full">
-                      <TabsTrigger value="image" className="flex-1 flex items-center gap-1 text-xs">
-                        <Upload className="w-3 h-3" />画像
+                    <TabsList className="w-full bg-transparent p-0 gap-2">
+                      <TabsTrigger
+                        value="image"
+                        className="flex-1 flex items-center justify-center gap-2 text-sm font-medium h-12 rounded-md border border-[#3e3e3e] bg-[#1e1e1e] text-[#a3a3a3] transition-all hover:bg-[#2a2a2a] hover:text-white data-[state=active]:bg-[#0ea5e9] data-[state=active]:border-[#0ea5e9] data-[state=active]:text-white data-[state=active]:shadow-[0_0_0_1px_rgba(14,165,233,0.35)]"
+                      >
+                        <Upload className="w-4 h-4" />
+                        画像
                       </TabsTrigger>
-                      <TabsTrigger value="text" className="flex-1 flex items-center gap-1 text-xs">
-                        <Type className="w-3 h-3" />テキスト
+                      <TabsTrigger
+                        value="text"
+                        className="flex-1 flex items-center justify-center gap-2 text-sm font-medium h-12 rounded-md border border-[#3e3e3e] bg-[#1e1e1e] text-[#a3a3a3] transition-all hover:bg-[#2a2a2a] hover:text-white data-[state=active]:bg-[#0ea5e9] data-[state=active]:border-[#0ea5e9] data-[state=active]:text-white data-[state=active]:shadow-[0_0_0_1px_rgba(14,165,233,0.35)]"
+                      >
+                        <Type className="w-4 h-4" />
+                        テキスト
                       </TabsTrigger>
                     </TabsList>
                   </Tabs>
@@ -651,20 +699,6 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                      <div className="rounded-lg bg-[#1e1e1e] border border-[#3e3e3e] p-3 flex items-center justify-center min-h-[52px] overflow-hidden">
-                        <span
-                          style={{
-                            fontFamily: wmFont,
-                            color: wmColor,
-                            fontSize: '18px',
-                            opacity: settings.opacity / 100,
-                            transform: `rotate(${settings.rotation}deg)`,
-                            display: 'inline-block',
-                          }}
-                        >
-                          {wmText || 'プレビュー'}
-                        </span>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -674,16 +708,26 @@ export default function App() {
                 {/* 配置モード */}
                 <div>
                   <Label className="text-xs text-muted-foreground mb-2 block">配置モード</Label>
-                  <Tabs value={settings.mode} onValueChange={v => setSettings(p => ({ ...p, mode: v as WatermarkMode }))}>
-                    <TabsList className="w-full">
-                      <TabsTrigger value="free"   className="flex-1">自由配置</TabsTrigger>
-                      <TabsTrigger value="repeat" className="flex-1">リピート</TabsTrigger>
+                  <Tabs
+                    value={settings.mode}
+                    onValueChange={v => setSettings(p => ({ ...p, mode: v as WatermarkMode }))}
+                  >
+                    <TabsList className="w-full bg-transparent p-0 gap-2">
+                      <TabsTrigger
+                        value="free"
+                        className="flex-1 h-11 rounded-md border border-[#3e3e3e] bg-[#1e1e1e] text-[#a3a3a3] transition-all hover:bg-[#2a2a2a] hover:text-white data-[state=active]:bg-[#0ea5e9] data-[state=active]:border-[#0ea5e9] data-[state=active]:text-white data-[state=active]:shadow-[0_0_0_1px_rgba(14,165,233,0.35)]"
+                      >
+                        自由配置
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="repeat"
+                        className="flex-1 h-11 rounded-md border border-[#3e3e3e] bg-[#1e1e1e] text-[#a3a3a3] transition-all hover:bg-[#2a2a2a] hover:text-white data-[state=active]:bg-[#0ea5e9] data-[state=active]:border-[#0ea5e9] data-[state=active]:text-white data-[state=active]:shadow-[0_0_0_1px_rgba(14,165,233,0.35)]"
+                      >
+                        リピート
+                      </TabsTrigger>
                     </TabsList>
                   </Tabs>
                 </div>
-
-                <div className="border-t border-[#3e3e3e]" />
-
                 {/* スライダー群 - 縦並び + 数値入力 */}
                 <div className="flex justify-between items-center">
                   <Label className="text-xs text-muted-foreground">調整</Label>
@@ -815,37 +859,6 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="border-t border-[#3e3e3e]" />
-
-                {/* 出力形式 + 保存ボタン */}
-                <div className="grid grid-cols-2 gap-3 items-end">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-2 block">出力形式</Label>
-                    <Select value={settings.outputFormat} onValueChange={v => setSettings(p => ({ ...p, outputFormat: v as OutputFormat }))}>
-                      <SelectTrigger className="text-white"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="png">PNG（可逆）</SelectItem>
-                        <SelectItem value="jpeg">JPEG（品質100）</SelectItem>
-                        <SelectItem value="webp">WebP</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button
-                    className="w-full bg-[#0ea5e9] hover:bg-[#0284c7]"
-                    onClick={handleSaveSingle}
-                    disabled={!selectedImage || !hasWatermark || isProcessing}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    保存
-                  </Button>
-                </div>
-
-                {checkedCount > 1 && (
-                  <Button className="w-full" variant="outline" onClick={handleSaveAll} disabled={!hasWatermark || isProcessing}>
-                    <Download className="w-4 h-4 mr-2" />
-                    選択画像を一括保存 ({checkedCount}枚)
-                  </Button>
-                )}
               </div>
             )}
 
@@ -920,13 +933,62 @@ export default function App() {
                   </div>
                 )}
 
-                {checkedCount > 1 && (
-                  <div className="mt-4 pt-3 border-t border-[#3e3e3e]">
-                    <Button className="w-full" variant="outline" onClick={handleSaveAll} disabled={!hasWatermark || isProcessing}>
+              </div>
+            )}
+
+            {/* ── Export panel ────────────────────────────────────── */}
+            {rightPanel === 'export' && (
+              <div className="p-4 space-y-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">出力形式</Label>
+                  <Select value={settings.outputFormat} onValueChange={v => setSettings(p => ({ ...p, outputFormat: v as OutputFormat }))}>
+                    <SelectTrigger className="text-white"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="png">PNG（可逆）</SelectItem>
+                      <SelectItem value="jpeg">JPEG（品質100）</SelectItem>
+                      <SelectItem value="webp">WebP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Button
+                  className="w-full bg-[#0ea5e9] hover:bg-[#0284c7]"
+                  onClick={handleSaveSingle}
+                  disabled={!selectedImage || !hasWatermark || isProcessing}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isProcessing ? '処理中…' : '現在の画像を保存'}
+                </Button>
+
+                {targetImages.length > 1 && (
+                  <>
+                    <div className="border-t border-[#3e3e3e]" />
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">一括書き出し</Label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="text-[10px] text-[#0ea5e9] hover:underline"
+                          onClick={() =>
+                            allChecked
+                              ? setCheckedIds(new Set())
+                              : setCheckedIds(new Set(targetImages.map(i => i.id)))
+                          }
+                        >
+                          {allChecked ? '全解除' : '全選択'}
+                        </button>
+                        <span className="text-xs text-muted-foreground">{checkedCount}/{targetImages.length}枚</span>
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      onClick={handleSaveAll}
+                      disabled={!hasWatermark || isProcessing || checkedCount === 0}
+                    >
                       <Download className="w-4 h-4 mr-2" />
-                      選択画像を一括保存 ({checkedCount}枚)
+                      {isProcessing ? '処理中…' : `選択画像を一括保存 (${checkedCount}枚)`}
                     </Button>
-                  </div>
+                  </>
                 )}
               </div>
             )}
@@ -939,7 +1001,7 @@ export default function App() {
           <IconBtn
             active={rightPanel === 'settings'}
             onClick={() => togglePanel('settings')}
-            title="透かし"
+            title="透かし設定"
           >
             <div className="flex flex-col items-center gap-0.5">
               <SlidersHorizontal className="w-5 h-5" />
@@ -955,6 +1017,17 @@ export default function App() {
             <div className="flex flex-col items-center gap-0.5">
               <FileImage className="w-5 h-5" />
               <span className="text-[10px]">画像</span>
+            </div>
+          </IconBtn>
+          <IconBtn
+            active={rightPanel === 'export'}
+            onClick={() => togglePanel('export')}
+            title="書き出し"
+            badge={!!selectedImage && hasWatermark}
+          >
+            <div className="flex flex-col items-center gap-0.5">
+              <FolderDown className="w-5 h-5" />
+              <span className="text-[10px]">書き出し</span>
             </div>
           </IconBtn>
         </div>
