@@ -185,18 +185,24 @@ export default function App() {
       const baseFontSize = Math.max(8, (w * s.scale) / 100);
       ctx.font = `${baseFontSize}px ${wmFontRef.current}`;
 
-      const metrics = ctx.measureText(text);
-      const maxTextWidth =
-        s.mode === 'repeat'
-          ? s.gapX * 0.8
-          : w * 0.35;
+      let finalFontSize = baseFontSize;
 
-      const fittedFontSize =
-        metrics.width > 0
-          ? Math.min(baseFontSize, baseFontSize * (maxTextWidth / metrics.width))
-          : baseFontSize;
+      if (s.scale >= 100) {
+        const metrics = ctx.measureText(text);
+        const maxTextWidth =
+          s.mode === 'repeat'
+            ? s.gapX * 0.8
+            : w * 0.35;
 
-      ctx.font         = `${fittedFontSize}px ${wmFontRef.current}`;
+        if (metrics.width > 0) {
+          finalFontSize = Math.min(
+            baseFontSize,
+            baseFontSize * (maxTextWidth / metrics.width)
+          );
+        }
+      }
+
+      ctx.font         = `${finalFontSize}px ${wmFontRef.current}`;
       ctx.fillStyle    = wmColorRef.current;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
