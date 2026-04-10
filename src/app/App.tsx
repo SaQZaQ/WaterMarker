@@ -31,15 +31,24 @@ const FONTS = [
   { value: 'fantasy',    label: 'Fantasy'    },
 ];
 
+function loadLS<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v !== null ? (JSON.parse(v) as T) : fallback;
+  } catch { return fallback; }
+}
+
 export default function App() {
   const [watermark, setWatermark]             = useState<WatermarkImage | null>(null);
   const [targetImages, setTargetImages]       = useState<TargetImage[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds]           = useState<Set<string>>(new Set());
-  const [settings, setSettings]               = useState<WatermarkSettings>({
-    mode: 'free', opacity: 30, rotation: 0, scale: 8,
-    x: 50, y: 50, gapX: 150, gapY: 150, outputFormat: 'png',
-  });
+  const [settings, setSettings]               = useState<WatermarkSettings>(() =>
+    loadLS<WatermarkSettings>('wm-settings', {
+      mode: 'free', opacity: 30, rotation: 0, scale: 1,
+      x: 50, y: 50, gapX: 500, gapY: 500, outputFormat: 'png',
+    })
+  );
   const [isProcessing, setIsProcessing]         = useState(false);
   const [isDragging, setIsDragging]             = useState(false);
   const [isCenterDragOver, setIsCenterDragOver] = useState(false);
@@ -47,6 +56,7 @@ export default function App() {
   const [rightPanel, setRightPanel]             = useState<RightPanel>(null);
   // パネルが完全に閉じきるまでプレースホルダーを非表示にする
   const [panelFullyClosed, setPanelFullyClosed] = useState(true);
+  const [sheetHeight, setSheetHeight]           = useState(50); // vh
 
   useEffect(() => {
     if (rightPanel) {
@@ -58,10 +68,10 @@ export default function App() {
   }, [rightPanel]);
 
   // Text watermark state
-  const [wmSource, setWmSource] = useState<WmSource>('image');
-  const [wmText,   setWmText]   = useState('Watermark');
-  const [wmColor,  setWmColor]  = useState('#ffffff');
-  const [wmFont,   setWmFont]   = useState('sans-serif');
+  const [wmSource, setWmSource] = useState<WmSource>(() => loadLS<WmSource>('wm-source', 'image'));
+  const [wmText,   setWmText]   = useState<string>(() => loadLS<string>('wm-text', 'Watermark'));
+  const [wmColor,  setWmColor]  = useState<string>(() => loadLS<string>('wm-color', '#ffffff'));
+  const [wmFont,   setWmFont]   = useState<string>(() => loadLS<string>('wm-font', 'sans-serif'));
 
   // Refs
   const baseCanvasRef      = useRef<HTMLCanvasElement>(null);
@@ -72,6 +82,8 @@ export default function App() {
   const wmImgRef           = useRef<HTMLImageElement | null>(null);
   const rafRef             = useRef<number | null>(null);
   const settingsRef        = useRef(settings);
+  const dragHandleRef      = useRef<{ startY: number; startH: number } | null>(null);
+  const wmMovedRef         = useRef(false);
   const wmSourceRef        = useRef(wmSource);
   const wmTextRef          = useRef(wmText);
   const wmColorRef         = useRef(wmColor);
@@ -82,6 +94,23 @@ export default function App() {
   useEffect(() => { wmTextRef.current   = wmText;    }, [wmText]);
   useEffect(() => { wmColorRef.current  = wmColor;   }, [wmColor]);
   useEffect(() => { wmFontRef.current   = wmFont;    }, [wmFont]);
+
+  useEffect(() => { localStorage.setItem('wm-settings', JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { localStorage.setItem('wm-source',   JSON.stringify(wmSource)); }, [wmSource]);
+  useEffect(() => { localStorage.setItem('wm-text',     JSON.stringify(wmText));   }, [wmText]);
+  useEffect(() => { localStorage.setItem('wm-color',    JSON.stringify(wmColor));  }, [wmColor]);
+  useEffect(() => { localStorage.setItem('wm-font',     JSON.stringify(wmFont));   }, [wmFont]);
+
+  const onHandlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragHandleRef.current = { startY: e.clientY, startH: sheetHeight };
+  };
+  const onHandlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragHandleRef.current) return;
+    const delta = (dragHandleRef.current.startY - e.clientY) / window.innerHeight * 100;
+    setSheetHeight(Math.max(15, Math.min(85, dragHandleRef.current.startH + delta)));
+  };
+  const onHandlePointerUp = () => { dragHandleRef.current = null; };
 
   const selectedImage = targetImages.find(img => img.id === selectedImageId) ?? null;
 
@@ -233,6 +262,7 @@ export default function App() {
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isDragging || !wmCanvasRef.current) return;
+      wmMovedRef.current = true;
       const canvas = wmCanvasRef.current;
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) * (canvas.width  / rect.width);
@@ -424,12 +454,16 @@ export default function App() {
 
         {/* ══ CENTER ══════════════════════════════════════════════════ */}
         <div
-          className={`flex-1 bg-[#1e1e1e] flex items-center justify-center p-4 relative overflow-hidden${!selectedImage ? ' cursor-pointer' : ''}`}
+          className={`flex-1 min-h-0 bg-[#1e1e1e] flex items-center justify-center p-4 relative overflow-hidden${!selectedImage && !rightPanel ? ' cursor-pointer' : ''}`}
           onDragOver={handleCenterDragOver}
           onDragEnter={handleCenterDragOver}
           onDragLeave={handleCenterDragLeave}
           onDrop={handleCenterDrop}
-          onClick={() => { if (!selectedImage) targetInputRef.current?.click(); }}
+          onClick={() => {
+            if (wmMovedRef.current) { wmMovedRef.current = false; return; }
+            if (rightPanel) { setRightPanel(null); return; }
+            if (!selectedImage) targetInputRef.current?.click();
+          }}
         >
           {isCenterDragOver && (
             <div className="absolute inset-2 border-4 border-dashed border-[#0ea5e9] bg-[#0ea5e9]/10 z-50 flex flex-col items-center justify-center rounded-xl pointer-events-none">
@@ -450,7 +484,8 @@ export default function App() {
                 style={{
                   imageRendering: 'high-quality',
                   maxWidth: '100%',
-                  maxHeight: 'calc(100vh - 56px - 56px - 2rem)',
+                  maxHeight: `calc(${100 - (rightPanel ? sheetHeight : 0)}dvh - 56px - 56px - 2rem)`,
+                  transition: 'max-height 300ms',
                 }}
               />
               <canvas
@@ -478,14 +513,20 @@ export default function App() {
         {/* ══ BOTTOM SHEET ════════════════════════════════════════════ */}
         <div
           className="overflow-hidden transition-all duration-300 bg-[#252525] border-t border-[#3e3e3e] shrink-0"
-          style={{ maxHeight: rightPanel ? '60vh' : '0px' }}
+          style={{ maxHeight: rightPanel ? `${sheetHeight}vh` : '0px' }}
         >
-          {/* Handle */}
-          <div className="flex justify-center pt-2 pb-1 shrink-0">
-            <div className="w-10 h-1 rounded-full bg-[#3e3e3e]" />
+          {/* Handle — drag to resize */}
+          <div
+            className="flex justify-center pt-2 pb-1 shrink-0 cursor-ns-resize touch-none select-none"
+            onPointerDown={onHandlePointerDown}
+            onPointerMove={onHandlePointerMove}
+            onPointerUp={onHandlePointerUp}
+            onPointerCancel={onHandlePointerUp}
+          >
+            <div className="w-10 h-1.5 rounded-full bg-[#555]" />
           </div>
 
-          <div className="overflow-y-auto" style={{ maxHeight: 'calc(60vh - 20px)' }}>
+          <div className="overflow-y-auto" style={{ maxHeight: `calc(${sheetHeight}vh - 20px)` }}>
 
             {/* ── Settings panel ─────────────────────────────────── */}
             {rightPanel === 'settings' && (
@@ -614,7 +655,7 @@ export default function App() {
                   <Tabs value={settings.mode} onValueChange={v => setSettings(p => ({ ...p, mode: v as WatermarkMode }))}>
                     <TabsList className="w-full">
                       <TabsTrigger value="free"   className="flex-1">自由配置</TabsTrigger>
-                      <TabsTrigger value="repeat" className="flex-1">繰り返し</TabsTrigger>
+                      <TabsTrigger value="repeat" className="flex-1">リピート</TabsTrigger>
                     </TabsList>
                   </Tabs>
                 </div>
@@ -642,21 +683,21 @@ export default function App() {
                       <Label className="text-xs text-muted-foreground">サイズ</Label>
                       <span className="text-xs text-foreground">{settings.scale}%</span>
                     </div>
-                    <Slider value={[settings.scale]} onValueChange={([v]) => setSettings(p => ({ ...p, scale: v }))} min={5} max={100} step={1} />
+                    <Slider value={[settings.scale]} onValueChange={([v]) => setSettings(p => ({ ...p, scale: v }))} min={1} max={100} step={1} />
                   </div>
 
                   {settings.mode === 'free' ? (
                     <>
                       <div>
                         <div className="flex justify-between mb-2">
-                          <Label className="text-xs text-muted-foreground">位置 X</Label>
+                          <Label className="text-xs text-muted-foreground">横の位置</Label>
                           <span className="text-xs text-foreground">{Math.round(settings.x)}%</span>
                         </div>
                         <Slider value={[settings.x]} onValueChange={([v]) => setSettings(p => ({ ...p, x: v }))} min={0} max={100} step={0.5} />
                       </div>
                       <div>
                         <div className="flex justify-between mb-2">
-                          <Label className="text-xs text-muted-foreground">位置 Y</Label>
+                          <Label className="text-xs text-muted-foreground">縦の位置</Label>
                           <span className="text-xs text-foreground">{Math.round(settings.y)}%</span>
                         </div>
                         <Slider value={[settings.y]} onValueChange={([v]) => setSettings(p => ({ ...p, y: v }))} min={0} max={100} step={0.5} />
@@ -666,14 +707,14 @@ export default function App() {
                     <>
                       <div>
                         <div className="flex justify-between mb-2">
-                          <Label className="text-xs text-muted-foreground">間隔 X</Label>
+                          <Label className="text-xs text-muted-foreground">横の間隔</Label>
                           <span className="text-xs text-foreground">{settings.gapX}px</span>
                         </div>
                         <Slider value={[settings.gapX]} onValueChange={([v]) => setSettings(p => ({ ...p, gapX: v }))} min={50} max={500} step={10} />
                       </div>
                       <div>
                         <div className="flex justify-between mb-2">
-                          <Label className="text-xs text-muted-foreground">間隔 Y</Label>
+                          <Label className="text-xs text-muted-foreground">縦の間隔</Label>
                           <span className="text-xs text-foreground">{settings.gapY}px</span>
                         </div>
                         <Slider value={[settings.gapY]} onValueChange={([v]) => setSettings(p => ({ ...p, gapY: v }))} min={50} max={500} step={10} />
@@ -749,7 +790,7 @@ export default function App() {
                 {targetImages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
                     <FileImage className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-xs text-center">中央エリアに画像をドロップ<br />またはＰＬＵＳボタンで追加</p>
+                    <p className="text-xs text-center">中央エリアに画像をドロップ<br />または+ボタンで追加</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">
@@ -806,11 +847,11 @@ export default function App() {
           <IconBtn
             active={rightPanel === 'settings'}
             onClick={() => togglePanel('settings')}
-            title="設定"
+            title="透かし"
           >
             <div className="flex flex-col items-center gap-0.5">
               <SlidersHorizontal className="w-5 h-5" />
-              <span className="text-[10px]">設定</span>
+              <span className="text-[10px]">透かし</span>
             </div>
           </IconBtn>
           <IconBtn
@@ -821,7 +862,7 @@ export default function App() {
           >
             <div className="flex flex-col items-center gap-0.5">
               <FileImage className="w-5 h-5" />
-              <span className="text-[10px]">画像一覧</span>
+              <span className="text-[10px]">画像</span>
             </div>
           </IconBtn>
         </div>
