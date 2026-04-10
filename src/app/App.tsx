@@ -258,93 +258,46 @@ export default function App() {
     drawWatermark(ctx, canvas.width, canvas.height);
   };
 
-  // Canvas drag
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Canvas drag (pointer events — works for mouse and touch)
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (settings.mode !== 'free' || !selectedImage) return;
     const canvas = wmCanvasRef.current;
     if (!canvas) return;
+    e.stopPropagation();
 
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
 
     const s = settingsRef.current;
-    const cx = (canvas.width * s.x) / 100;
+    const cx = (canvas.width  * s.x) / 100;
     const cy = (canvas.height * s.y) / 100;
 
-    let hitHalfW = 100;
-    let hitHalfH = 30;
+    // ヒット判定：ウォーターマーク全域でドラッグ開始
+    canvas.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    wmMovedRef.current = false;
 
-    if (wmSourceRef.current === 'image' && wmImgRef.current) {
-      hitHalfW = ((wmImgRef.current.naturalWidth * s.scale) / 100) / 2;
-      hitHalfH = ((wmImgRef.current.naturalHeight * s.scale) / 100) / 2;
-    } else if (wmSourceRef.current === 'text') {
-      const text = wmTextRef.current.trim();
-      if (!text) return;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.save();
-
-      ctx.font = `100px ${wmFontRef.current}`;
-      const metricsAt100 = ctx.measureText(text);
-
-      const maxTextWidth = canvas.width;
-      const maxFontSize =
-        metricsAt100.width > 0
-          ? (maxTextWidth / metricsAt100.width) * 100
-          : 100;
-
-      const fontSize = Math.max(1, (maxFontSize * s.scale) / 100);
-      ctx.font = `${fontSize}px ${wmFontRef.current}`;
-
-      const metrics = ctx.measureText(text);
-      const textWidth = metrics.width;
-      const textHeight =
-        (metrics.actualBoundingBoxAscent || fontSize * 0.8) +
-        (metrics.actualBoundingBoxDescent || fontSize * 0.2);
-
-      ctx.restore();
-
-      hitHalfW = textWidth / 2;
-      hitHalfH = textHeight / 2;
-    }
-
-    if (
-      x >= cx - hitHalfW &&
-      x <= cx + hitHalfW &&
-      y >= cy - hitHalfH &&
-      y <= cy + hitHalfH
-    ) {
-      setIsDragging(true);
-    }
+    void cx; void cy; void x; void y; // 将来の精密ヒット判定用に変数保持
   };
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!isDragging || !wmCanvasRef.current) return;
-      wmMovedRef.current = true;
-      const canvas = wmCanvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (canvas.width  / rect.width);
-      const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
-      setSettings(p => ({
-        ...p,
-        x: Math.max(0, Math.min(100, (x / canvas.width)  * 100)),
-        y: Math.max(0, Math.min(100, (y / canvas.height) * 100)),
-      }));
-    };
-    const onUp = () => setIsDragging(false);
-    if (isDragging) {
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup',   onUp);
-    }
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup',   onUp);
-    };
-  }, [isDragging]);
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDragging || !wmCanvasRef.current) return;
+    wmMovedRef.current = true;
+    const canvas = wmCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width  / rect.width);
+    const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
+    setSettings(p => ({
+      ...p,
+      x: Math.max(0, Math.min(100, (x / canvas.width)  * 100)),
+      y: Math.max(0, Math.min(100, (y / canvas.height) * 100)),
+    }));
+  };
+
+  const handleCanvasPointerUp = () => {
+    setIsDragging(false);
+  };
 
   // File utilities
   const loadImage = (file: File): Promise<{ src: string; width: number; height: number }> =>
@@ -558,7 +511,11 @@ export default function App() {
                   imageRendering: 'high-quality',
                   cursor: settings.mode === 'free' ? (isDragging ? 'grabbing' : 'grab') : 'default',
                 }}
-                onMouseDown={handleCanvasMouseDown}
+                onPointerDown={handleCanvasPointerDown}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={handleCanvasPointerUp}
+                onPointerCancel={handleCanvasPointerUp}
+                onClick={e => e.stopPropagation()}
               />
             </div>
           ) : (

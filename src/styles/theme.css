@@ -178,4 +178,10 @@
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
   }
+
+  /* スマホで input フォーカス時の自動ズームを防ぐ (16px 未満でズーム発生) */
+  input[type="number"],
+  input[type="text"] {
+    font-size: 16px;
+  }
 }
